@@ -58,7 +58,7 @@ func (r *RoleBase) OnMircoBlockConsensusStarted(peer *pb.PeerEndpoint) error {
 	return nil
 }
 
-func (r *RoleBase) OnViewChangeConsensusStarted() error {
+func (r *RoleBase) OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error {
 	util.OkChainPanic("Invalid invoke")
 	return nil
 }

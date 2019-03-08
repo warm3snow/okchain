@@ -25,6 +25,7 @@ package role
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -248,13 +249,20 @@ func (r *RoleDsLead) onFinalBlockConsensusStart() {
 	r.dsConsensusLeader.InitiateConsensus(announce, r.peerServer.Committee, r.imp)
 }
 
-func (r *RoleDsLead) OnViewChangeConsensusStarted() error {
+func (r *RoleDsLead) OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error {
 	go r.dsConsensusLeader.WaitForViewChange()
 
 	loggerShardingLead.Debugf("wait %ds to start consensus", CONSENSUS_START_WAITTIME)
 	time.Sleep(time.Duration(CONSENSUS_START_WAITTIME) * time.Second) //OnViewChangeConsensusStarted
 
-	r.peerServer.Committee = append(r.peerServer.Committee[1:len(r.peerServer.Committee)], r.peerServer.Committee[0])
+	var i = 0
+	for ; i < len(r.peerServer.Committee); i++ {
+		if reflect.DeepEqual(r.peerServer.Committee[i].Pubkey, peer.Pubkey) {
+			break
+		}
+	}
+
+	r.peerServer.Committee = append(r.peerServer.Committee[i:len(r.peerServer.Committee)], r.peerServer.Committee[0:i]...)
 	loggerDsLead.Debugf("current committee is %+v", r.peerServer.Committee)
 	r.dsConsensusLeader.SetCurrentConsensusStage(pb.ConsensusType_ViewChangeConsensus)
 

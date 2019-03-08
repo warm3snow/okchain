@@ -28,8 +28,8 @@ import (
 	"math/rand"
 
 	"github.com/golang/protobuf/proto"
-	logging "github.com/ok-chain/okchain/log"
 	ps "github.com/ok-chain/okchain/core/server"
+	logging "github.com/ok-chain/okchain/log"
 	pb "github.com/ok-chain/okchain/protos"
 	"github.com/spf13/viper"
 )

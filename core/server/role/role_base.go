@@ -110,6 +110,7 @@ func (r *RoleBase) ProcessTransaction(tx *pb.Transaction) {
 func (r *RoleBase) ProcessMsg(msg *pb.Message, from *pb.PeerEndpoint) error {
 	logger.Debugf("%s: roleType<%s>, roleValue<%v>", util.GId, reflect.TypeOf(r.imp), r)
 	logger.Debugf("%s: stateType<%s>, stateValue<%v>", util.GId, reflect.TypeOf(r.state), r.state)
+	logger.Debugf("msg is %+v, from is %+v", msg, from)
 
 	r.state.ProcessMsg(r.imp, msg, from)
 	return nil
@@ -442,12 +443,26 @@ func (r *RoleBase) getNewLeaderWhenNotViewChange(currentStage pb.ConsensusType) 
 	return newLeader
 }
 
+//StartViewChange select new leader by round-robin, hypothesis synchronously
 func (r *RoleBase) StartViewChange(currentStage, lastStage pb.ConsensusType) error {
 	// store consensus stage info in peerServer ConsensusData
 	r.peerServer.ConsensusData.CurrentStage = currentStage
 	r.peerServer.ConsensusData.LastStage = lastStage
 	// get viewchange leader
 	newLeader := r.GetNewLeader(currentStage, lastStage)
+	return r.StartViewChangeBase(newLeader, lastStage)
+}
+
+//StartViewChangeAsync select new leader by votes > 2f + 1, asynchronously. NewLeader is passed from ConsensusBase
+func (r *RoleBase) StartViewChangeAsync(currentStage, lastStage pb.ConsensusType, newLeader *pb.PeerEndpoint) error {
+	//save the consensus stage
+	r.peerServer.ConsensusData.CurrentStage = currentStage
+	r.peerServer.ConsensusData.LastStage = lastStage
+
+	return r.StartViewChangeBase(newLeader, lastStage)
+}
+
+func (r *RoleBase) StartViewChangeBase(newLeader *pb.PeerEndpoint, lastStage pb.ConsensusType) error {
 	var err error
 	if reflect.DeepEqual(newLeader.Pubkey, r.peerServer.SelfNode.Pubkey) {
 		logger.Infof("I am the viewchange and next consensus leader")
@@ -455,10 +470,10 @@ func (r *RoleBase) StartViewChange(currentStage, lastStage pb.ConsensusType) err
 		switch lastStage {
 		case pb.ConsensusType_DsBlockConsensus, pb.ConsensusType_FinalBlockConsensus:
 			newRole := r.peerServer.ChangeRole(ps.PeerRole_DsLead, ps.STATE_VIEWCHANGE_CONSENSUS)
-			err = newRole.OnViewChangeConsensusStarted()
+			err = newRole.OnViewChangeConsensusStarted(newLeader)
 		case pb.ConsensusType_MicroBlockConsensus:
 			newRole := r.peerServer.ChangeRole(ps.PeerRole_ShardingLead, ps.STATE_VIEWCHANGE_CONSENSUS)
-			err = newRole.OnViewChangeConsensusStarted()
+			err = newRole.OnViewChangeConsensusStarted(newLeader)
 		}
 	} else {
 		logger.Infof("I am the viewchange and next consensus backup")
@@ -466,10 +481,10 @@ func (r *RoleBase) StartViewChange(currentStage, lastStage pb.ConsensusType) err
 		switch lastStage {
 		case pb.ConsensusType_DsBlockConsensus, pb.ConsensusType_FinalBlockConsensus:
 			newRole := r.peerServer.ChangeRole(ps.PeerRole_DsBackup, ps.STATE_VIEWCHANGE_CONSENSUS)
-			err = newRole.OnViewChangeConsensusStarted()
+			err = newRole.OnViewChangeConsensusStarted(newLeader)
 		case pb.ConsensusType_MicroBlockConsensus:
 			newRole := r.peerServer.ChangeRole(ps.PeerRole_ShardingBackup, ps.STATE_VIEWCHANGE_CONSENSUS)
-			err = newRole.OnViewChangeConsensusStarted()
+			err = newRole.OnViewChangeConsensusStarted(newLeader)
 		}
 	}
 	if err != nil {

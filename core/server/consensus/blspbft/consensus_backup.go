@@ -30,9 +30,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/ok-chain/okchain/core/blockchain"
+	ps "github.com/ok-chain/okchain/core/server"
 	"github.com/ok-chain/okchain/crypto/multibls"
 	logging "github.com/ok-chain/okchain/log"
-	ps "github.com/ok-chain/okchain/core/server"
 	pb "github.com/ok-chain/okchain/protos"
 )
 
@@ -61,6 +61,11 @@ func (cb *ConsensusBackup) UpdateLeader(leader *pb.PeerEndpoint) {
 }
 
 func (cb *ConsensusBackup) ProcessConsensusMsg(msg *pb.Message, from *pb.PeerEndpoint, r ps.IRole) error {
+
+	loggerBackup.Debugf("msg is %+v", msg)
+	if msg.Type == pb.Message_Consensus_ViewChangeVote {
+		return cb.ProcessViewChangeVote(msg, from)
+	}
 
 	if !reflect.DeepEqual(cb.GetCurrentLeader().Pubkey, from.Pubkey) {
 		loggerBackup.Errorf("incorrect message source, expect %+v, actual %+v", cb.GetCurrentLeader().Id.Name, from.Id.Name)
@@ -96,6 +101,9 @@ func (cb *ConsensusBackup) processMessageAnnounce(msg *pb.Message, from *pb.Peer
 	} else {
 		loggerBackup.Debugf("verify announce message passed")
 	}
+
+	//XXX, cache the announce for view change if neccessary
+	cb.buffer = append(cb.buffer, msg)
 
 	// 2. compose final response message
 	response, err := consensusHandler.ComposedFinalResponse(cb.role)

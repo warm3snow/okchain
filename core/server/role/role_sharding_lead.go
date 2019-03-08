@@ -27,9 +27,9 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	ps "github.com/ok-chain/okchain/core/server"
 	"github.com/ok-chain/okchain/core/txpool"
 	logging "github.com/ok-chain/okchain/log"
-	ps "github.com/ok-chain/okchain/core/server"
 	pb "github.com/ok-chain/okchain/protos"
 	"github.com/ok-chain/okchain/util"
 )
@@ -198,7 +198,7 @@ func (r *RoleShardingLead) OnMircoBlockConsensusStarted(peer *pb.PeerEndpoint) e
 	return nil
 }
 
-func (r *RoleShardingLead) OnViewChangeConsensusStarted() error {
+func (r *RoleShardingLead) OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error {
 	go r.consensusLeader.WaitForViewChange()
 
 	loggerShardingLead.Debugf("wait %ds to start consensus", CONSENSUS_START_WAITTIME)

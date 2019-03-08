@@ -50,6 +50,7 @@ type ConsensusHandler interface {
 	VerifyBlock(msg *pb.Message, from *pb.PeerEndpoint, consensusType pb.ConsensusType) error
 	ComposeFinalResponse(consensusType pb.ConsensusType) (*pb.Message, error)
 	StartViewChange(currentStage, lastStage pb.ConsensusType) error
+	StartViewChangeAsync(currentStage, lastStage pb.ConsensusType, newLeader *pb.PeerEndpoint) error
 	GetCurrentDSBlock() *pb.DSBlock
 	GetCurrentFinalBlock() *pb.TxBlock
 	GetCurrentMicroBlock() *pb.MicroBlock
@@ -87,7 +88,7 @@ type IRole interface {
 	Wait4PoWSubmission(ctx context.Context, cancle context.CancelFunc)
 	OnConsensusCompleted(err error) error
 	OnMircoBlockConsensusStarted(peer *pb.PeerEndpoint) error
-	OnViewChangeConsensusStarted() error
+	OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error
 	VerifyVCBlock(msg *pb.Message, from *pb.PeerEndpoint) (*pb.VCBlock, error)
 
 	GetName() string

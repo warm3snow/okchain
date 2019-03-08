@@ -28,8 +28,8 @@ import (
 	"reflect"
 
 	"github.com/golang/protobuf/proto"
-	logging "github.com/ok-chain/okchain/log"
 	ps "github.com/ok-chain/okchain/core/server"
+	logging "github.com/ok-chain/okchain/log"
 	pb "github.com/ok-chain/okchain/protos"
 )
 
@@ -89,12 +89,13 @@ func (r *RoleShardingBackup) OnMircoBlockConsensusStarted(peer *pb.PeerEndpoint)
 	return nil
 }
 
-func (r *RoleShardingBackup) OnViewChangeConsensusStarted() error {
+func (r *RoleShardingBackup) OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error {
 	go r.consensusBackup.WaitForViewChange()
 
 	r.consensusBackup.SetCurrentConsensusStage(pb.ConsensusType_ViewChangeConsensus)
 	// update leader before viewchange consensus
 	r.consensusBackup.UpdateLeader(r.GetNewLeader(r.peerServer.ConsensusData.CurrentStage, r.peerServer.ConsensusData.LastStage))
+	r.consensusBackup.UpdateLeader(peer)
 	vcblock, err := r.composeVCBlock()
 	if err != nil {
 		return ErrComposeBlock

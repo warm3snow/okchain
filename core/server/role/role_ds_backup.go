@@ -562,12 +562,19 @@ func (r *RoleDsBackup) produceFinalResponse(block proto.Message, envelope *pb.Me
 	return envelope, nil
 }
 
-func (r *RoleDsBackup) OnViewChangeConsensusStarted() error {
+func (r *RoleDsBackup) OnViewChangeConsensusStarted(peer *pb.PeerEndpoint) error {
 	go r.dsConsensusBackup.WaitForViewChange()
 	r.dsConsensusBackup.SetCurrentConsensusStage(pb.ConsensusType_ViewChangeConsensus)
 	// update leader when consensus start
-	r.dsConsensusBackup.UpdateLeader(r.GetNewLeader(r.peerServer.ConsensusData.CurrentStage, r.peerServer.ConsensusData.LastStage))
-	r.peerServer.Committee = append(r.peerServer.Committee[1:len(r.peerServer.Committee)], r.peerServer.Committee[0])
+	//r.dsConsensusBackup.UpdateLeader(r.GetNewLeader(r.peerServer.ConsensusData.CurrentStage, r.peerServer.ConsensusData.LastStage))
+	r.dsConsensusBackup.UpdateLeader(peer)
+	var i = 0
+	for ; i < len(r.peerServer.Committee); i++ {
+		if reflect.DeepEqual(r.peerServer.Committee[i].Pubkey, peer.Pubkey) {
+			break
+		}
+	}
+	r.peerServer.Committee = append(r.peerServer.Committee[i:len(r.peerServer.Committee)], r.peerServer.Committee[0:i]...)
 	loggerDsBackup.Debugf("current committee is %+v", r.peerServer.Committee)
 	vcblock, err := r.composeVCBlock()
 	if err != nil {

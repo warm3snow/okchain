@@ -31,9 +31,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/ok-chain/okchain/core/blockchain"
+	ps "github.com/ok-chain/okchain/core/server"
 	"github.com/ok-chain/okchain/crypto/multibls"
 	logging "github.com/ok-chain/okchain/log"
-	ps "github.com/ok-chain/okchain/core/server"
 	pb "github.com/ok-chain/okchain/protos"
 	"github.com/ok-chain/okchain/util"
 )
@@ -73,12 +73,16 @@ func (cl *ConsensusLead) SetIRole(irole ps.IRole) {
 
 // ProcessConsensusMsg process consensus message
 func (cl *ConsensusLead) ProcessConsensusMsg(msg *pb.Message, from *pb.PeerEndpoint, r ps.IRole) error {
+	loggerLead.Debugf("msg is %+v", msg)
+	if msg.Type == pb.Message_Consensus_ViewChangeVote {
+		return cl.ProcessViewChangeVote(msg, from)
+	}
+
 	if !cl.consensusBackupNodes.Has(from) {
 		loggerLead.Errorf("incorrect message source, actual %+v not in backup nodes", from.Id.Name)
 		return ErrIncorrectMessageSource
 	}
 	cl.role = r
-
 	switch msg.Type {
 	case pb.Message_Consensus_FinalResponse:
 		cl.processMessageFinalResponse(msg, from)

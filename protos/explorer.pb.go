@@ -94,6 +94,7 @@ It has these top-level messages:
 	ConfigRpcResponse
 	InformDs
 	InformSharding
+	ViewChangeVote
 */
 package protos
 

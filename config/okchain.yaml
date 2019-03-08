@@ -46,10 +46,10 @@ ledger:
     state:
 
 sharding:
-  size: 5
+  size: 6
 
 ds:
-  size: 5
+  size: 6
 
 consensus:
   powDifficulty: 100000

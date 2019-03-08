@@ -26,8 +26,8 @@ package blspbft
 import (
 	"sync"
 
-	logging "github.com/ok-chain/okchain/log"
 	ps "github.com/ok-chain/okchain/core/server"
+	logging "github.com/ok-chain/okchain/log"
 	pb "github.com/ok-chain/okchain/protos"
 )
 
@@ -94,6 +94,19 @@ func (ch *ConsensusHandler) StartViewChange(r ps.IRole) error {
 
 	// call StartViewChange function in rolebase
 	err := r.StartViewChange(ch.currentType, ch.lastStageType)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func (ch *ConsensusHandler) StartViewChangeAsyn(r ps.IRole, newLeader *pb.PeerEndpoint) error {
+	// init last stage type, lastStageType cannot be pb.ConsensusType_ViewChangeConsensus
+	if ch.currentType != pb.ConsensusType_ViewChangeConsensus {
+		ch.lastStageType = ch.currentType
+	}
+
+	// call StartViewChange function in rolebase
+	err := r.StartViewChangeAsync(ch.currentType, ch.lastStageType, newLeader)
 	if err != nil {
 		return err
 	}
