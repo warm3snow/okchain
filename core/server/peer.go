@@ -564,9 +564,6 @@ func (p *PeerServer) Multicast(msg *pb.Message, peerList []*pb.PeerEndpoint) err
 				}
 				p.lock.Unlock()
 			}
-			if msg.Type == pb.Message_Consensus_ViewChangeVote{
-				peerLogger.Debugf("send view change vote succeded, msg is %+v, to peer ==> %+v",msg, peer)
-			}
 		} else {
 			count++
 			peerLogger.Errorf("peer ID name is nil")

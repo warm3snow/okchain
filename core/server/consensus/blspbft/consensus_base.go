@@ -24,8 +24,10 @@ limitations under the License.
 package blspbft
 
 import (
+	"encoding/hex"
+	"fmt"
+	"github.com/pkg/errors"
 	"math"
-	"reflect"
 	"sync"
 	"time"
 
@@ -53,9 +55,9 @@ type ConsensusBase struct {
 	state      ConsensusState_Type
 
 	//for handling VC timeout
-	leaderId      uint16
+	leaderId      uint32
 	windowClosed  bool
-	vcLeaderCnt   map[string]uint16
+	vcLeaderCnt   map[string]uint32
 	faultyLeaders []*pb.PeerEndpoint
 
 	buffer []*pb.Message
@@ -64,8 +66,8 @@ type ConsensusBase struct {
 func newConsensusBase(peer *ps.PeerServer) *ConsensusBase {
 	c := &ConsensusBase{
 		windowClosed: false,
-		leaderId:     uint16(0),
-		vcLeaderCnt:  make(map[string]uint16),
+		leaderId:     uint32(0),
+		vcLeaderCnt:  make(map[string]uint32),
 	}
 	c.peerServer = peer
 	c.leader = &pb.PeerEndpoint{}
@@ -108,120 +110,123 @@ func (c *ConsensusBase) WaitForViewChange() {
 		logger.Debugf("consensus finished before viewchange timeout")
 		return
 		// waiting for viewchange timeout
-		// * 检查VCLeaderCnt，找出最大的cnt，如果存在$(cnt>f+1)的节点，则设置候选leader为该节点
-		// * 否则发送leader投票信息
 	case t := <-ticker0.C:
-		logger.Debugf("viewchange ticker0 timeout when consensus handling, %+v, timeout set is %ds, vcLeaderCnt is %+v, role name is %s",
+		logger.Debugf("viewchange timeout when consensus handling, %+v, timeout set is %ds, vcLeaderCnt is %+v, role name is %s",
 			t.String(), c.peerServer.GetViewchangeTimeOut(), c.vcLeaderCnt, c.peerServer.GetCurrentRole().GetName())
-
-		//2f+1 satisfy
-		if newLeader := c.GetViewChangeLeader(); newLeader != nil {
-			err := consensusHandler.StartViewChangeAsyn(c.role, newLeader)
-			if err == nil {
-				logger.Debugf("Async view change, my view change leader is %+v", newLeader)
-				//c.windowClosed = true
-				c.leaderId = 0
-				c.vcLeaderCnt = make(map[string]uint16)
-			} else {
-				logger.Debugf("Async view change err: %+v", err)
+		//if = 2f+1 satisfy; else = self-up a candidate leader, here is round-robin
+		if leader, votes, _ := c.GetMaxVotes(); c.SatisfyTolt(votes) {
+			logger.Debugf("> 2f+1, leader is %+v, votes is %v", leader, votes)
+			if err := c.BroadcastVotes(leader, votes); err != nil {
+				logger.Debugf("broadcastVotes err1, %s", err.Error())
+				return
 			}
-
-		} else { //if votes < 2f+1, go to vote and change leader by round-robin
-			logger.Debugf("Syn view change, start to vote. no available 2f+1 votes leader")
-			c.leaderId += uint16(1)
-			_, err := c.BroadcastVotes()
-			if err != nil {
-				logger.Debugf("BroadcastVotes err: %+v", err)
+			//No count network-latency in, XXX, start view change
+			consensusHandler.StartViewChangeAsyn(c.role, leader)
+			logger.Debugf("> 2f+1 end")
+		} else {
+			candidate, votes := c.GetNextLeader() //votes is 1
+			logger.Debugf("< 2f+1, my candidate leader is %+v, votes is %v", candidate, votes)
+			if err := c.BroadcastVotes(candidate, votes); err != nil {
+				logger.Debugf("broadcastVotes err2, %s", err.Error())
+				return
 			}
-			//consensusHandler.StartViewChangeAsyn(c.role, candidate)
+			logger.Debugf("< 2f+1 end")
 		}
+		return
 	}
 }
 
-func (c *ConsensusBase) BroadcastVotes() (*pb.PeerEndpoint, error) {
-	candidate, voteMsg, peerList := c.CreateVoteMsg(c.leaderId)
-	logger.Debugf("candidate is %+v, voteMsg is %+v, peerList is %+v", candidate, voteMsg, peerList)
-	if err := c.peerServer.Multicast(voteMsg, peerList); err != nil {
-		return nil, err
+//SatifyTolt test whether votes number is larger the 2/3
+func (c *ConsensusBase) SatisfyTolt(votes uint32) bool {
+	if votes < uint32(math.Floor(float64(len(c.GetPeerAdjacentList()))*ToleranceFraction))+1 {
+		return false
+	}
+	return true
+}
+
+func (c *ConsensusBase) BroadcastVotes(leader *pb.PeerEndpoint, votes uint32) error {
+	logger.Debugf("BroadcastVotes begin")
+	voteMsg := c.CreateVoteMsg(leader, votes)
+	if err := c.peerServer.Multicast(voteMsg, c.GetPeerAdjacentList()); err != nil { //network is not stable, critical
+		return err
 	}
 	logger.Debugf("propose votes, voteMsg is %+v", voteMsg)
-	//consensusHandler.StartViewChange(c.role)
-	return candidate, nil
+	logger.Debugf("BroadcastVotes end")
+	return nil
 }
 
-//GetViewChangeLeader is used to get a candidate leader when timeout, if votes > 2f+1 exists, admit this candidate
-func (c *ConsensusBase) GetViewChangeLeader() *pb.PeerEndpoint {
+//CalMaxVotes tries to get a candidate leader when timeout
+func (c *ConsensusBase) GetMaxVotes() (leader *pb.PeerEndpoint, votes uint32, err error) {
+	logger.Debugf("GetMaxVotes begin")
 	var (
-		candidateAddr string
-		maxVotes      uint16 = 0
+		maxVotes = uint32(0)
+		leaderPK string
 	)
-	//find the node having most votes, which is the candidate leader
-	for addr, votes := range c.vcLeaderCnt {
+	for pk, votes := range c.vcLeaderCnt {
 		if votes > maxVotes {
 			maxVotes = votes
-			candidateAddr = addr
+			leaderPK = pk
 		}
 	}
-	logger.Debugf("max votes is %d, addr: %+v", maxVotes, candidateAddr)
+	logger.Debugf("max votes is %d, addr: %+v", maxVotes, leaderPK)
 	var peerList = c.GetPeerAdjacentList()
-	if peerList == nil || maxVotes < uint16(math.Floor(float64(len(peerList))*ToleranceFraction))+1 {
-		return nil
+	for _, peer := range peerList {
+		if hex.EncodeToString(peer.Pubkey) == leaderPK {
+			return peer, maxVotes, nil
+		}
+	}
+	logger.Debugf("GetMaxVotes end")
+	return nil, maxVotes, errors.New("No adjacent peers. Critical!")
+}
+func (c *ConsensusBase) GetNextLeader() (*pb.PeerEndpoint, uint32) {
+	logger.Debugf("GetNextLeader begin")
+	peerList := c.GetPeerAdjacentList()
+	fmt.Printf("peerList is %+v, len is %d", peerList, len(peerList))
+	if peerList == nil || uint32(len(peerList)) < c.leaderId {
+		return nil, uint32(0)
 	}
 
-	var candidate *pb.PeerEndpoint
-	for _, peer := range peerList {
-		if reflect.DeepEqual(peer.Coinbase, []byte(candidateAddr)) {
-			candidate = peer
-			break
-		}
-	}
-	return candidate
+	fmt.Println("leaderId is %+v, peerList len is %+v", c.leaderId, uint32(len(peerList)))
+
+	candidate := peerList[c.leaderId%uint32(len(peerList))]
+	c.AddVotes(candidate, uint32(1))
+
+	logger.Debugf("GetNextLeader end")
+	return candidate, uint32(1)
 }
 
 func (c *ConsensusBase) ProcessViewChangeVote(msg *pb.Message, peer *pb.PeerEndpoint) error {
-	//if c.windowClosed {
-	//	logger.Debugf("ViewChangeVote colleting window closed")
-	//	return nil
-	//}
 	logger.Debugf("process view change vote msg is %+v", msg)
-	var candidate pb.PeerEndpoint
-	if err := proto.Unmarshal(msg.GetPayload(), &candidate); err != nil {
+	var voteMsg pb.ViewChangeVote
+	if err := proto.Unmarshal(msg.GetPayload(), &voteMsg); err != nil {
 		logger.Debugf("unmarshal ViewChangeVote error, %+v", err)
 		return err
 	}
 	//calculate votes
-	mutex.Lock()
-	c.RefreshVotes(string(candidate.Coinbase))
-	mutex.Unlock()
+	c.AddVotes(voteMsg.Leader, voteMsg.Votes)
+
+	if c.SatisfyTolt(voteMsg.Votes) {
+		consensusHandler.StartViewChangeAsyn(c.role, voteMsg.Leader)
+	}
 
 	return nil
 }
 
-func (c *ConsensusBase) CreateVoteMsg(leaderId uint16) (*pb.PeerEndpoint, *pb.Message, []*pb.PeerEndpoint) {
+func (c *ConsensusBase) CreateVoteMsg(leader *pb.PeerEndpoint, votes uint32) *pb.Message {
 	msg := &pb.Message{}
 	msg.Type = pb.Message_Consensus_ViewChangeVote
 	msg.Peer = c.peerServer.SelfNode
 
-	//select candidate
-	peerList := c.GetPeerAdjacentList()
-	var (
-		candidate *pb.PeerEndpoint
-		data      []byte
-	)
-	if peerList != nil {
-		candidate = peerList[int(leaderId)%len(peerList)]
-		data, _ = proto.Marshal(candidate)
+	var voteMsg = &pb.ViewChangeVote{
+		Leader: leader,
+		Votes:  votes,
 	}
+	data, _ := proto.Marshal(voteMsg)
 	msg.Payload = data
 
-	//add vote locally before send vote
-	mutex.Lock()
-	c.RefreshVotes(string(candidate.Coinbase))
-	mutex.Unlock()
+	logger.Debugf("peer[%+v] vote for peer[%+v], votes is %d", c.peerServer.SelfNode, leader, votes)
 
-	logger.Debugf("peer[%+v] vote for peer[%d][%+v]", c.peerServer.SelfNode, leaderId, candidate)
-
-	return candidate, msg, peerList
+	return msg
 }
 
 func (c *ConsensusBase) GetPeerAdjacentList() []*pb.PeerEndpoint {
@@ -234,10 +239,10 @@ func (c *ConsensusBase) GetPeerAdjacentList() []*pb.PeerEndpoint {
 	return nil
 }
 
-func(c *ConsensusBase) RefreshVotes(address string){
-	if _, ok := c.vcLeaderCnt[address]; !ok {
-		c.vcLeaderCnt[address] = 1
-	} else {
-		c.vcLeaderCnt[address]++
-	}
+func (c *ConsensusBase) AddVotes(candidate *pb.PeerEndpoint, votes uint32) {
+	var pk = hex.EncodeToString(candidate.Pubkey)
+	mutex.Lock()
+	c.vcLeaderCnt[pk] += votes
+	mutex.Unlock()
+	logger.Debugf("peer %v add votes %v", pk, votes)
 }

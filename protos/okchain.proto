@@ -306,5 +306,6 @@ message InformSharding{
 }
 
 message ViewChangeVote{
-    PeerEndpoint LeaderCandidate = 1;
+    PeerEndpoint Leader = 1;
+    uint32 votes = 2;
 }
