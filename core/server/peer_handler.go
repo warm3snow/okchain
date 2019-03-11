@@ -88,8 +88,10 @@ func (d *P2PHandler) HandleMessage(msg *pb.Message) error {
 			}
 		}
 	} else {
+		fmt.Println("peer receive msg, not hello, msg is %+v", msg)
 		r := d.Coordinator.GetCurrentRole()
 		r.ProcessMsg(msg, d.ToPeerEndpoint)
+		fmt.Println("peer receive msg, not hello, ProcessMsg before, role is %+v", r)
 	}
 
 	return nil

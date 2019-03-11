@@ -145,13 +145,13 @@ func (c *ConsensusBase) SatisfyTolt(votes uint32) bool {
 }
 
 func (c *ConsensusBase) BroadcastVotes(leader *pb.PeerEndpoint, votes uint32) error {
-	logger.Debugf("BroadcastVotes begin")
 	voteMsg := c.CreateVoteMsg(leader, votes)
-	if err := c.peerServer.Multicast(voteMsg, c.GetPeerAdjacentList()); err != nil { //network is not stable, critical
-		return err
+	peerList := c.GetPeerAdjacentList()
+	logger.Debugf("broadcast peerlist is %+v", peerList)
+	if err := c.peerServer.Multicast(voteMsg, peerList); err != nil { //network is not stable, critical
+		return ErrMultiCastMessage
 	}
 	logger.Debugf("propose votes, voteMsg is %+v", voteMsg)
-	logger.Debugf("BroadcastVotes end")
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (c *ConsensusBase) GetNextLeader() (*pb.PeerEndpoint, uint32) {
 		return nil, uint32(0)
 	}
 
-	fmt.Println("leaderId is %+v, peerList len is %+v", c.leaderId, uint32(len(peerList)))
+	fmt.Printf("leaderId is %+v, peerList len is %+v", c.leaderId, uint32(len(peerList)))
 
 	candidate := peerList[c.leaderId%uint32(len(peerList))]
 	c.AddVotes(candidate, uint32(1))
@@ -202,6 +202,7 @@ func (c *ConsensusBase) ProcessViewChangeVote(msg *pb.Message, peer *pb.PeerEndp
 		logger.Debugf("unmarshal ViewChangeVote error, %+v", err)
 		return err
 	}
+	logger.Debugf("process view change vote msg payload is %+v", voteMsg)
 	//calculate votes
 	c.AddVotes(voteMsg.Leader, voteMsg.Votes)
 
